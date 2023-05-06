@@ -33,3 +33,5 @@ references
 2. https://www.boost.org/doc/libs/1_82_0/libs/math/doc/html/math_toolkit/internals/minimax.html
 3. boost.org, .\libs\math\include_private\boost\math\tools\remez.hpp
 4. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp
+
+目前相信卡在精度上,double精度不夠用
