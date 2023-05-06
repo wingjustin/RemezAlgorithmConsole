@@ -21,8 +21,11 @@ references
 parameters
 
 func = 函數f(x)
+
 relative_error[true|false] = true 為 對相對誤差最佳化, false 為 對絕對誤差最佳化
+
 pinned [true|false] = true 為 控制逼近函數必須通過原點(0,0), 並且盡量避免控制點為0導致出現除零情況
+
 skew [-100,100] 為使初始切比雪夫零點左偏或右偏, 正數為左偏, 負數為右偏, 預設為0
 
 references
