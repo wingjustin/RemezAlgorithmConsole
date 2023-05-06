@@ -34,4 +34,4 @@ references
 3. boost.org, .\libs\math\include_private\boost\math\tools\remez.hpp
 4. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp
 
-後續可以在精度準度上進行改善
+後續需要在精度準度上進行改善
