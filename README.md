@@ -34,4 +34,4 @@ references
 3. boost.org, .\libs\math\include_private\boost\math\tools\remez.hpp
 4. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp
 
-目前相信卡在精度上,double精度不夠用
+目前相信卡在精度準度上
