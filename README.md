@@ -50,4 +50,4 @@ Remez Algorithm
 <li>4. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp</li>
 </ul>
 
-後續需要在精度準度上進行改善
+<p>後續需要在精度準度上進行改善</p>
