@@ -9,6 +9,8 @@ Remez Algorithm
 
 一元n+1階切比雪夫多項式的絕對最大值為1/(2^n), 所以多項式插值絕對誤差最大值控制在f^(n+1)(c)/(2^n)/(n+1)!內
 
+而且對其它任意一元n+1階函數g(x),x在[-1,1], 其絕對最大值必定大於等於1/(2^n)
+
 references
 1. https://youtu.be/vGTZVerkTds?t=2212
 2. https://zhuanlan.zhihu.com/p/393903459
