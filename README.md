@@ -50,5 +50,3 @@ Remez Algorithm
 <li>4. https://github.com/samhocevar/lolremez/wiki</li>
 <li>5. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp</li>
 </ul>
-
-<p>後續需要在精度準度上進行改善</p>
