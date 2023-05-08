@@ -47,7 +47,8 @@ Remez Algorithm
 <li>1. https://www.boost.org/doc/libs/1_46_1/libs/math/doc/sf_and_dist/html/math_toolkit/backgrounders/remez.html</li>
 <li>2. https://www.boost.org/doc/libs/1_82_0/libs/math/doc/html/math_toolkit/internals/minimax.html</li>
 <li>3. boost.org, .\libs\math\include_private\boost\math\tools\remez.hpp</li>
-<li>4. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp</li>
+<li>4. https://github.com/samhocevar/lolremez/wiki</li>
+<li>5. https://github.com/samhocevar/lolremez/blob/main/src/solver.cpp</li>
 </ul>
 
 <p>後續需要在精度準度上進行改善</p>
