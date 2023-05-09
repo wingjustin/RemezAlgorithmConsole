@@ -37,8 +37,12 @@ Remez::Remez(double (* const func)(double)
     , const int skew) {
     //initialize
     Remez::func = func;
+    Remez::weight_func = NULL;
 
-    Remez::relative_error = relative_error;
+    //Remez::relative_error = relative_error;
+    Remez::error_type = relative_error
+        ? RemezErrorType::RelativeError
+        : RemezErrorType::AbsoluteError;
     Remez::pinned = pinned;
 
     Remez::oN = oN;
@@ -57,9 +61,8 @@ Remez::Remez(double (* const func)(double)
     maxRank = oN > oD ? oN : oD;
 
     n = pinned ? (oN + oD) : (oN + oD + 1);
-
-    const unsigned int unknownCount = n + 1; // add 1 for Error at remez step
-    const unsigned int rootCount = n + 2;
+    unknownCount = n + 1; // add 1 for Error at remez step
+    rootCount = n + 2;
 
     Remez::iter_count = 0;
 
@@ -70,8 +73,72 @@ Remez::Remez(double (* const func)(double)
     for (unsigned int i = 0; i < unknownCount; i++)
         Remez::matrix[i] = new double[unknownCount];
 
-    Remez::ratFuncC = new RationalFuncContainer{ solution , pinned , pinned ? oN : (oN + 1) , oD };
+    Remez::estimFuncC = new EstimateFuncContainer{ solution , pinned , pinned ? oN : (oN + 1) , oD };
     Remez::funcC = new FuncContainer{ func };
+    Remez::weight_funcC = NULL;
+
+    Remez::error_func_roots = Remez::GenerateChebyshevKnotsAndBoundaries();// descending order
+    Remez::error_func_extrema = new double* [unknownCount]; // add 1 for Error at remez step
+
+    Remez::max_error = 0.0;
+    Remez::max_error_change = 0.0;
+    Remez::max_error_last_change = 0.0;
+
+    Remez::solution_max_abs_error = 0.0;
+    Remez::solution_max_rel_error = 0.0;
+
+    Remez::Initialize();
+}
+
+Remez::Remez(double (*func)(double)
+    , double (*weight_func)(double), bool pinned
+    , unsigned int oN, unsigned int oD
+    , double left_interval, double right_interval
+    , int skew) {
+    //initialize
+    Remez::func = func;
+    Remez::weight_func = weight_func;
+
+    //Remez::relative_error = false;
+    Remez::error_type = weight_func
+        ? RemezErrorType::WeightError
+        : RemezErrorType::AbsoluteError;
+    Remez::pinned = pinned;
+
+    Remez::oN = oN;
+    Remez::oD = oD;
+
+    if (left_interval < right_interval) {
+        Remez::left_interval = left_interval, Remez::right_interval = right_interval;
+    }
+    else {
+        Remez::left_interval = right_interval, Remez::right_interval = left_interval;
+    }
+
+    Remez::skew = skew;
+    Remez::brake = 0;
+
+    maxRank = oN > oD ? oN : oD;
+
+    n = pinned ? (oN + oD) : (oN + oD + 1);
+    unknownCount = n + 1; // add 1 for Error at remez step
+    rootCount = n + 2;
+
+    Remez::iter_count = 0;
+
+    Remez::sanity = true;
+
+    Remez::solution = new double[unknownCount];
+    Remez::matrix = new double* [unknownCount];
+    for (unsigned int i = 0; i < unknownCount; i++)
+        Remez::matrix[i] = new double[unknownCount];
+
+    Remez::estimFuncC = new EstimateFuncContainer{ solution , pinned , pinned ? oN : (oN + 1) , oD };
+    Remez::funcC = new FuncContainer{ func };
+    if (Remez::error_type == RemezErrorType::WeightError)
+        Remez::weight_funcC = new FuncContainer{ weight_func };
+    else
+        Remez::weight_funcC = NULL;
 
     Remez::error_func_roots = Remez::GenerateChebyshevKnotsAndBoundaries();// descending order
     Remez::error_func_extrema = new double* [unknownCount]; // add 1 for Error at remez step
@@ -88,15 +155,16 @@ Remez::Remez(double (* const func)(double)
 
 Remez::~Remez() {
 	delete[] solution;
-	for (unsigned int i = 0; i < n + 1; i++)
+	for (unsigned int i = 0; i < unknownCount; i++)
 		delete[] matrix[i];
     delete[] matrix;
 
-    delete ratFuncC;
+    delete estimFuncC;
     delete funcC;
+    delete weight_funcC;
 
 	delete[] error_func_roots;
-    for (unsigned int i = 0; i < n + 1; i++)
+    for (unsigned int i = 0; i < unknownCount; i++)
         delete[] error_func_extrema[i];
     delete[] error_func_extrema;
 }
@@ -138,9 +206,6 @@ double* Remez::GenerateChebyshevKnotsAndBoundaries() { // return double array
     * b = right bound
     * s = skew
 	*/
-
-    const unsigned int unknownCount = n + 1;
-	const unsigned int rootCount = n + 2;
 
 	if (rootCount < 1)
 		return NULL;
@@ -200,9 +265,6 @@ void Remez::Initialize() {
 	// b = Ax
 	//build b vector
 
-    const unsigned int unknownCount = n + 1;
-    const unsigned int rootCount = n + 2;
-
 	for (unsigned int i = 0, i2 = 1; i < n; i++, i2++) {
 		solution[i] = func(error_func_roots[i2]); // function
 	}
@@ -250,28 +312,19 @@ void Remez::Initialize() {
         }
     }
 
-	// get extrema
+	// update extrema
 	unsigned int iter;
-	if (relative_error) {
-        max_error = 0.0;
-		Abs_RelativeErrorFunc errorFunc = { ratFuncC, funcC };
-		for (unsigned int i = 0; i < unknownCount; i++) {
-            iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
-			error_func_extrema[i] = BrentMethodExtrema::FindMaxima(&errorFunc, error_func_roots[i + 1], error_func_roots[i], iter);
-            if (error_func_extrema[i][1] > max_error)
-                max_error = error_func_extrema[i][1];
-		}
-	}
-	else {
-        max_error = 0.0;
-		Abs_AbsoluteErrorFunc errorFunc = { ratFuncC, funcC };
-		for (unsigned int i = 0; i < unknownCount; i++) {
-            iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
-			error_func_extrema[i] = BrentMethodExtrema::FindMaxima(&errorFunc, error_func_roots[i + 1], error_func_roots[i], iter);
-            if (error_func_extrema[i][1] > max_error)
-                max_error = error_func_extrema[i][1];
-		}
-	}
+    switch (error_type) {
+    case RemezErrorType::WeightError:
+        InitializeWeightedErrorFuncExtrema(iter);
+        break;
+    case RemezErrorType::RelativeError:
+        InitializeRelativeErrorFuncExtrema(iter);
+        break;
+    default: //case RemezErrorType::AbsoluteError:
+        InitializeAbsoluteErrorFuncExtrema(iter);
+        break;
+    }
 
     max_error_change = max_error;
 }
@@ -281,6 +334,290 @@ bool Remez::Iterate() { // return success
         return false;
 
     //iterate
+
+    double E = solution[n];
+    double* bVector = new double[unknownCount];
+    double* yVector = new double[unknownCount];
+
+    switch (error_type) {
+    case RemezErrorType::WeightError:
+        IteratingSolveLinearEquationsWithWeightError(E, bVector, yVector);
+        break;
+    case RemezErrorType::RelativeError:
+        IteratingSolveLinearEquationsWithRelativeError(E, bVector, yVector);
+        break;
+    case RemezErrorType::AbsoluteError:
+        IteratingSolveLinearEquationsWithAbsoluteError(E, bVector, yVector);
+        break;
+    }
+
+    iter_count++;
+
+    //check whether solution is valid
+    if (!CheckSolutionValid(bVector)) {
+        // fail
+        delete[] bVector;
+        delete[] yVector;
+
+        return sanity = false;
+    }
+
+    //check solution error
+    if (!CheckSolutionError(bVector, yVector)) {
+        // too much error
+        delete[] bVector;
+        delete[] yVector;
+
+        return sanity = false;
+    }
+
+    //save solution
+    for (unsigned int i = 0; i < unknownCount; i++)
+        solution[i] = bVector[i];
+
+    //update control points
+    //check control points alternate in sign first, if not, try to correct it
+    if (!CheckErrorFuncExtremaAlternateSign()) {
+        //fatal failed, cannot correct it
+        delete[] bVector;
+        delete[] yVector;
+
+        return sanity = false;
+    }
+
+    ////check control points alternate in sign agian
+    //double e1, e2;
+    //AbsoluteErrorFunc errorFunc = { estimFuncC, funcC };
+    //for (unsigned int i = 1; i <= n; i++) {
+    //    e1 = errorFunc(controlPoints[i - 1][0]);
+    //    e2 = errorFunc(controlPoints[i][0]);
+    //    // check sign
+    //    if ((_DOUBLE_HI(e1) & 0x80000000) == (_DOUBLE_HI(e2) & 0x80000000)) {
+    //        for (unsigned int i = 0; i < unknownCount; i++)
+    //            delete[] AMatrix[i];
+    //        delete[] AMatrix;
+
+    //        delete[] bVector;
+    //        delete[] yVector;
+
+    //        return sanity = false;
+    //    }
+    //}
+
+    unsigned int iter;
+    // update roots
+    switch (error_type) {
+    case RemezErrorType::WeightError:
+        UpdateWeightedErrorFuncRoots(iter);
+        break;
+    case RemezErrorType::RelativeError:
+        UpdateRelativeErrorFuncRoots(iter);
+        break;
+    case RemezErrorType::AbsoluteError:
+        UpdateAbsoluteErrorFuncRoots(iter);
+        break;
+    }
+
+    max_error_last_change = max_error_change;
+    max_error_change = max_error;
+
+    // update extrema
+    if (brake) {
+        // controlPoint = newExt_x + brake% * (oldExt_x - newExt_x)
+        const double brakePercent = (double)brake / 100.0;
+        switch (error_type) {
+        case RemezErrorType::WeightError:
+            UpdateWeightedErrorFuncExtrema(brakePercent, iter);
+            break;
+        case RemezErrorType::RelativeError:
+            UpdateRelativeErrorFuncExtrema(brakePercent, iter);
+            break;
+        default: //case RemezErrorType::AbsoluteError:
+            UpdateAbsoluteErrorFuncExtrema(brakePercent, iter);
+            break;
+        }
+    }
+    else { // brake == 0
+        switch (error_type) {
+        case RemezErrorType::WeightError:
+            UpdateWeightedErrorFuncExtrema(iter);
+            break;
+        case RemezErrorType::RelativeError:
+            UpdateRelativeErrorFuncExtrema(iter);
+            break;
+        default: //case RemezErrorType::AbsoluteError:
+            UpdateAbsoluteErrorFuncExtrema(iter);
+            break;
+        }
+    }
+
+    max_error_change = max_error - max_error_change;
+
+    delete[] bVector;
+    delete[] yVector;
+
+    return sanity = true;
+}
+
+void Remez::IteratingSolveLinearEquationsWithWeightError(double E, double*& solutionVector, double*& funcVector) {
+    double**& controlPoints = error_func_extrema;
+    double*& bVector = solutionVector;
+    double*& yVector = funcVector;
+
+    // f(x) - P(x) / [1 + Q(x)] = E
+    // 1. P(x) / [1 + Q(x)] + E = f(x)
+    // 2. P(x) + E*[1 + Q(x)] = f(x)*[1 + Q(x)]
+    // 3. P(x) - f(x)*Q(x) + E*Q(x) + E = f(x)
+    // 4. P(x) - [f(x) - E]*Q(x) + E = f(x)
+    // 5. P(x) + [E - f(x)]*Q(x) + E = f(x)
+    // **first iterate
+    // current truncated polynomial in first iterate is "P(x) + [E - f(x)]*Q(x)"
+    // **second iterate
+    // because E is also an unknown, need to approximate E first
+    // so the equation in second iterate is "P(x) + [E' - f(x)]*Q(x) + E = f(x)", E' is the last E in last iterate
+    // **need to guess real E first
+    // 
+    // * for using weight function
+    // {f(x) - P(x) / [1 + Q(x)]} / W(x) = E
+    // f(x) - P(x) / [1 + Q(x)] = E * W(x)
+    // ...
+    // P(x) + [(E' * W(x)) - f(x)]*Q(x) + (E * W(x)) = f(x)
+    // 
+    // Cm for numerator's coefficients, Cn for denominator's coefficients
+    // f(x) = Cm0 + Cm1 * x + Cm2 * x**2 + ... + CmoN * x**oN
+    //  + [E' - f(x)] * (Cn1 * x + Cn2 * x**2 + ... + CnoD * x**oD)
+    //  + E
+    // all Cm, Cn and E are unknowns
+    // if pinned then Cm0 is 0, else Cm0 is unknown
+    // 
+
+    double sign;
+    double guessE;
+    double err_err; // measure error's error
+    double err_err_tol = _REMEZ_DEFAULT_RATIONAL_ERR_TOLERANCE; // error's error tolerance
+    unsigned int err_max_convergence = _REMEZ_DEFAULT_RATIONAL_ERR_MAX_CONVGC;
+
+    double** AMatrix = new double* [unknownCount];
+    for (unsigned int i = 0; i < unknownCount; i++)
+        AMatrix[i] = new double[unknownCount];
+
+    double x, xx, y;
+    double absGuessE, absE = E;
+    _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+    double w;
+    //pre-calculate weights
+    double* wVector = new double[unknownCount];
+    for (unsigned int i = 0; i < unknownCount; i++)
+        wVector[i] = weight_func(controlPoints[i][0]); // function
+
+    if (pinned) {
+        // if "pinned" is true, all control points cannot be 0. The origin(0,0) control point will occur the 0 dividing during LUP step.
+        for (unsigned int i = 0; i < unknownCount; i++) {
+            //avoid the origin(0,0) control point
+            if (controlPoints[i][0] == 0.0) {
+                controlPoints[i][0] = controlPoints[i == 0 ? (i + 1) : (i - 1)][0] * _BRENTMETHOD_GOLDEN_RATIO_B; // /3
+                controlPoints[i][1] = yVector[i] = func(controlPoints[i][0]);
+                _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
+            }
+            else
+                yVector[i] = func(controlPoints[i][0]); // function
+        }
+        //guess E
+        do {
+            sign = 1;
+            for (unsigned int i = 0; i < unknownCount; i++) {
+                xx = x = controlPoints[i][0];
+                y = bVector[i] = yVector[i];
+                w = wVector[i];
+                for (unsigned int j = 0; j < maxRank; j++) {
+                    if (j < oN)
+                        matrix[i][j] = AMatrix[i][j] = xx; // numerator
+                    if (j + oN < n)
+                        matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E * w - y); //-xx * ( func(x) - E * weight_func(x) ); // denominator
+
+                    xx *= x;
+                }
+                matrix[i][n] = AMatrix[i][n] = sign * w;
+                _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
+                _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
+            }
+
+            LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
+
+            absGuessE = guessE = bVector[n];
+            _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
+
+            if (E == 0) {
+                err_err = 1.0;
+            }
+            else {
+                err_err = (absGuessE - absE) / absE;
+                _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
+            }
+
+            absE = E = guessE;
+            _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+        } while (oD // check if it is approximating by a rational function or a polynomial
+            && --err_max_convergence
+            && (err_err > err_err_tol));
+    }
+    else {
+        for (unsigned int i = 0; i < unknownCount; i++)
+            yVector[i] = func(controlPoints[i][0]); // function
+        //guess E
+        do {
+            sign = 1;
+            for (unsigned int i = 0; i < unknownCount; i++) {
+                xx = x = controlPoints[i][0];
+                y = bVector[i] = yVector[i];
+                w = wVector[i];
+                matrix[i][0] = AMatrix[i][0] = 1; // Cm0
+                for (unsigned int j = 1; j <= maxRank; j++) {
+                    if (j <= oN)
+                        matrix[i][j] = AMatrix[i][j] = xx; // numerator
+                    if (j + oN < n)
+                        matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E * w - y); //-xx * ( func(x) - E * weight_func(x) ); // denominator
+
+                    xx *= x;
+                }
+                matrix[i][n] = AMatrix[i][n] = sign * w;
+                _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
+                _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
+            }
+
+            LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
+
+            absGuessE = guessE = bVector[n];
+            _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
+
+            if (E == 0) {
+                err_err = 1.0;
+            }
+            else {
+                err_err = (absGuessE - absE) / absE;
+                _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
+            }
+
+            absE = E = guessE;
+            _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+        } while (oD // check if it is approximating by a rational function or a polynomial
+            && --err_max_convergence
+            && (err_err > err_err_tol));
+    }
+
+    delete[] wVector;
+    for (unsigned int i = 0; i < unknownCount; i++)
+        delete[] AMatrix[i];
+    delete[] AMatrix;
+}
+
+void Remez::IteratingSolveLinearEquationsWithRelativeError(double E, double*& solutionVector, double*& funcVector) {
+    double**& controlPoints = error_func_extrema;
+    double*& bVector = solutionVector;
+    double*& yVector = funcVector;
 
     // f(x) - P(x) / [1 + Q(x)] = E
     // 1. P(x) / [1 + Q(x)] + E = f(x)
@@ -307,19 +644,8 @@ bool Remez::Iterate() { // return success
     //  + E
     // all Cm, Cn and E are unknowns
     // if pinned then Cm0 is 0, else Cm0 is unknown
-    // b = Ax
-    //build new b vector
+    // 
 
-    iter_count++;
-
-    const unsigned int unknownCount = n + 1;
-    const unsigned int rootCount = n + 2;
-
-    double E = solution[n];
-    double*& roots = error_func_roots;
-    double**& controlPoints = error_func_extrema;
-
-    //guess E first
     double sign;
     double guessE;
     double err_err; // measure error's error
@@ -330,8 +656,11 @@ bool Remez::Iterate() { // return success
     for (unsigned int i = 0; i < unknownCount; i++)
         AMatrix[i] = new double[unknownCount];
 
-    double* bVector = new double[unknownCount];
-    double* yVector = new double[unknownCount];
+    double x, xx, y;
+    double absGuessE, absE = E;
+    _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+    double absY;
 
     if (pinned) {
         // if "pinned" is true, all control points cannot be 0. The origin(0,0) control point will occur the 0 dividing during LUP step.
@@ -345,202 +674,226 @@ bool Remez::Iterate() { // return success
             else
                 yVector[i] = func(controlPoints[i][0]); // function
         }
-        //
-        if (relative_error) {
-            double x, xx, y, absY;
-            double absGuessE, absE = E;
+        //guess E
+        do {
+            sign = 1;
+            for (unsigned int i = 0; i < unknownCount; i++) {
+                xx = x = controlPoints[i][0];
+                absY = y = bVector[i] = yVector[i];
+                _DOUBLE_HI(absY) &= 0x7FFFFFFF;
+                for (unsigned int j = 0; j < maxRank; j++) {
+                    if (j < oN)
+                        matrix[i][j] = AMatrix[i][j] = xx; // numerator
+                    if (j + oN < n)
+                        matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E * absY - y); //-xx * ( func(x) - E * abs(func(x)) ); // denominator
+
+                    xx *= x;
+                }
+                matrix[i][n] = AMatrix[i][n] = sign * absY;
+                _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
+                _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
+            }
+
+            LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
+
+            absGuessE = guessE = bVector[n];
+            _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
+
+            if (E == 0) {
+                err_err = 1.0;
+            }
+            else {
+                err_err = (absGuessE - absE) / absE;
+                _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
+            }
+
+            absE = E = guessE;
             _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-            do {
-                sign = 1;
-                for (unsigned int i = 0; i < unknownCount; i++) {
-                    xx = x = controlPoints[i][0];
-                    absY = y = bVector[i] = yVector[i];
-                    _DOUBLE_HI(absY) &= 0x7FFFFFFF;
-                    for (unsigned int j = 0; j < maxRank; j++) {
-                        if (j < oN)
-                            matrix[i][j] = AMatrix[i][j] = xx; // numerator
-                        if (j + oN < n)
-                            matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E * absY - y); //-xx * ( func(x) - E * abs(func(x)) ); // denominator
 
-                        xx *= x;
-                    }
-                    matrix[i][n] = AMatrix[i][n] = sign * absY;
-                    _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
-                    _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
-                }
-
-                LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
-
-                absGuessE = guessE = bVector[n];
-                _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
-
-                if (E == 0) {
-                    err_err = 1.0;
-                }
-                else {
-                    err_err = (absGuessE - absE) / absE;
-                    _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
-                }
-
-                absE = E = guessE;
-                _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-
-            } while (oD // check if it is approximating by a rational function or a polynomial
-                && --err_max_convergence
-                && (err_err > err_err_tol));
-        }
-        else {
-            double x, xx, y;
-            double absGuessE, absE = E;
-            _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-            do {
-                sign = 1;
-                for (unsigned int i = 0; i < unknownCount; i++) {
-                    xx = x = controlPoints[i][0];
-                    y = bVector[i] = yVector[i];
-                    for (unsigned int j = 0; j < maxRank; j++) {
-                        if (j < oN)
-                            matrix[i][j] = AMatrix[i][j] = xx; // numerator
-                        if (j + oN < n)
-                            matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E - y); //-xx * (func(x) - E); // denominator
-
-                        xx *= x;
-                    }
-                    matrix[i][n] = AMatrix[i][n] = sign;
-                    _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
-                    _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
-                }
-
-                LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
-
-                absGuessE = guessE = bVector[n];
-                _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
-
-                if (E == 0) {
-                    err_err = 1.0;
-                }
-                else {
-                    err_err = (absGuessE - absE) / absE;
-                    _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
-                }
-
-                absE = E = guessE;
-                _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-
-            } while (oD // check if it is approximating by a rational function or a polynomial
-                && --err_max_convergence
-                && (err_err > err_err_tol));
-        }
+        } while (oD // check if it is approximating by a rational function or a polynomial
+            && --err_max_convergence
+            && (err_err > err_err_tol));
     }
     else {
         for (unsigned int i = 0; i < unknownCount; i++)
             yVector[i] = func(controlPoints[i][0]); // function
-        //
-        if (relative_error) {
-            double x, xx, y, absY;
-            double absGuessE, absE = E;
+        //guess E
+        do {
+            sign = 1;
+            for (unsigned int i = 0; i < unknownCount; i++) {
+                xx = x = controlPoints[i][0];
+                absY = y = bVector[i] = yVector[i];
+                _DOUBLE_HI(absY) &= 0x7FFFFFFF;
+                matrix[i][0] = AMatrix[i][0] = 1; // Cm0
+                for (unsigned int j = 1; j <= maxRank; j++) {
+                    if (j <= oN)
+                        matrix[i][j] = AMatrix[i][j] = xx; // numerator
+                    if (j + oN < n)
+                        matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E * absY - y); //-xx * ( func(x) - E * abs(func(x)) ); // denominator
+
+                    xx *= x;
+                }
+                matrix[i][n] = AMatrix[i][n] = sign * absY;
+                _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
+                _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
+            }
+
+            LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
+
+            absGuessE = guessE = bVector[n];
+            _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
+
+            if (E == 0) {
+                err_err = 1.0;
+            }
+            else {
+                err_err = (absGuessE - absE) / absE;
+                _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
+            }
+
+            absE = E = guessE;
             _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-            do {
-                sign = 1;
-                for (unsigned int i = 0; i < unknownCount; i++) {
-                    xx = x = controlPoints[i][0];
-                    absY = y = bVector[i] = yVector[i];
-                    _DOUBLE_HI(absY) &= 0x7FFFFFFF;
-                    matrix[i][0] = AMatrix[i][0] = 1; // Cm0
-                    for (unsigned int j = 1; j <= maxRank; j++) {
-                        if (j <= oN)
-                            matrix[i][j] = AMatrix[i][j] = xx; // numerator
-                        if (j + oN < n)
-                            matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E * absY - y); //-xx * ( func(x) - E * abs(func(x)) ); // denominator
 
-                        xx *= x;
-                    }
-                    matrix[i][n] = AMatrix[i][n] = sign * absY;
-                    _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
-                    _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
-                }
-
-                LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
-
-                absGuessE = guessE = bVector[n];
-                _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
-
-                if (E == 0) {
-                    err_err = 1.0;
-                }
-                else {
-                    err_err = (absGuessE - absE) / absE;
-                    _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
-                }
-
-                absE = E = guessE;
-                _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-
-            } while (oD // check if it is approximating by a rational function or a polynomial
-                && --err_max_convergence
-                && (err_err > err_err_tol));
-        }
-        else {
-            double x, xx, y;
-            double absGuessE, absE = E;
-            _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-            do {
-                sign = 1;
-                for (unsigned int i = 0; i < unknownCount; i++) {
-                    xx = x = controlPoints[i][0];
-                    y = bVector[i] = yVector[i];
-                    matrix[i][0] = AMatrix[i][0] = 1; // Cm0
-                    for (unsigned int j = 1; j <= maxRank; j++) {
-                        if (j <= oN)
-                            matrix[i][j] = AMatrix[i][j] = xx; // numerator
-                        if (j + oN < n)
-                            matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E - y); //-xx * (func(x) - E); // denominator
-
-                        xx *= x;
-                    }
-                    matrix[i][n] = AMatrix[i][n] = sign;
-                    _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
-                    _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
-                }
-
-                LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
-
-                absGuessE = guessE = bVector[n];
-                _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
-
-                if (E == 0) {
-                    err_err = 1.0;
-                }
-                else {
-                    err_err = (absGuessE - absE) / absE;
-                    _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
-                }
-
-                absE = E = guessE;
-                _DOUBLE_HI(absE) &= 0x7FFFFFFF;
-
-            } while (oD // check if it is approximating by a rational function or a polynomial
-                && --err_max_convergence
-                && (err_err > err_err_tol));
-        }
+        } while (oD // check if it is approximating by a rational function or a polynomial
+            && --err_max_convergence
+            && (err_err > err_err_tol));
     }
 
-    //check whether solution is valid
+    for (unsigned int i = 0; i < unknownCount; i++)
+        delete[] AMatrix[i];
+    delete[] AMatrix;
+}
+
+void Remez::IteratingSolveLinearEquationsWithAbsoluteError(double E, double*& solutionVector, double*& funcVector) {
+    double**& controlPoints = error_func_extrema;
+    double*& bVector = solutionVector;
+    double*& yVector = funcVector;
+    //
+    double sign;
+    double guessE;
+    double err_err; // measure error's error
+    double err_err_tol = _REMEZ_DEFAULT_RATIONAL_ERR_TOLERANCE; // error's error tolerance
+    unsigned int err_max_convergence = _REMEZ_DEFAULT_RATIONAL_ERR_MAX_CONVGC;
+
+    double** AMatrix = new double* [unknownCount];
+    for (unsigned int i = 0; i < unknownCount; i++)
+        AMatrix[i] = new double[unknownCount];
+
+    double x, xx, y;
+    double absGuessE, absE = E;
+    _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+    if (pinned) {
+        // if "pinned" is true, all control points cannot be 0. The origin(0,0) control point will occur the 0 dividing during LUP step.
+        for (unsigned int i = 0; i < unknownCount; i++) {
+            //avoid the origin(0,0) control point
+            if (controlPoints[i][0] == 0.0) {
+                controlPoints[i][0] = controlPoints[i == 0 ? (i + 1) : (i - 1)][0] * _BRENTMETHOD_GOLDEN_RATIO_B; // /3
+                controlPoints[i][1] = yVector[i] = func(controlPoints[i][0]);
+                _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
+            }
+            else
+                yVector[i] = func(controlPoints[i][0]); // function
+        }
+        //guess E
+        do {
+            sign = 1;
+            for (unsigned int i = 0; i < unknownCount; i++) {
+                xx = x = controlPoints[i][0];
+                y = bVector[i] = yVector[i];
+                for (unsigned int j = 0; j < maxRank; j++) {
+                    if (j < oN)
+                        matrix[i][j] = AMatrix[i][j] = xx; // numerator
+                    if (j + oN < n)
+                        matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E - y); //-xx * (func(x) - E); // denominator
+
+                    xx *= x;
+                }
+                matrix[i][n] = AMatrix[i][n] = sign;
+                _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
+                _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
+            }
+
+            LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
+
+            absGuessE = guessE = bVector[n];
+            _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
+
+            if (E == 0) {
+                err_err = 1.0;
+            }
+            else {
+                err_err = (absGuessE - absE) / absE;
+                _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
+            }
+
+            absE = E = guessE;
+            _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+        } while (oD // check if it is approximating by a rational function or a polynomial
+            && --err_max_convergence
+            && (err_err > err_err_tol));
+    }
+    else {
+        for (unsigned int i = 0; i < unknownCount; i++)
+            yVector[i] = func(controlPoints[i][0]); // function
+        //guess E
+        do {
+            sign = 1;
+            for (unsigned int i = 0; i < unknownCount; i++) {
+                xx = x = controlPoints[i][0];
+                y = bVector[i] = yVector[i];
+                matrix[i][0] = AMatrix[i][0] = 1; // Cm0
+                for (unsigned int j = 1; j <= maxRank; j++) {
+                    if (j <= oN)
+                        matrix[i][j] = AMatrix[i][j] = xx; // numerator
+                    if (j + oN < n)
+                        matrix[i][j + oN] = AMatrix[i][j + oN] = xx * (E - y); //-xx * (func(x) - E); // denominator
+
+                    xx *= x;
+                }
+                matrix[i][n] = AMatrix[i][n] = sign;
+                _DOUBLE_HI(sign) ^= 0x80000000; // change sign bit
+                _DOUBLE_HI(E) ^= 0x80000000; // change sign bit
+            }
+
+            LUP::SolvingLinearEquations(unknownCount, AMatrix, bVector);
+
+            absGuessE = guessE = bVector[n];
+            _DOUBLE_HI(absGuessE) &= 0x7FFFFFFF;
+
+            if (E == 0) {
+                err_err = 1.0;
+            }
+            else {
+                err_err = (absGuessE - absE) / absE;
+                _DOUBLE_HI(err_err) &= 0x7FFFFFFF;
+            }
+
+            absE = E = guessE;
+            _DOUBLE_HI(absE) &= 0x7FFFFFFF;
+
+        } while (oD // check if it is approximating by a rational function or a polynomial
+            && --err_max_convergence
+            && (err_err > err_err_tol));
+    }
+
+    for (unsigned int i = 0; i < unknownCount; i++)
+        delete[] AMatrix[i];
+    delete[] AMatrix;
+}
+
+//check sanity
+bool Remez::CheckSolutionValid(double*& solutionVector) {
     for (unsigned int i = 0; i < unknownCount; i++) {
         //check whether value is valid
-        if (!CheckValidNum(bVector[i])) {
-            for (unsigned int i = 0; i < unknownCount; i++)
-                delete[] AMatrix[i];
-            delete[] AMatrix;
-
-            delete[] bVector;
-            delete[] yVector;
-
-            return sanity = false;
-        }
+        if (!CheckValidNum(solutionVector[i]))
+            return false;
     }
+    return true;
+}
 
-    //check solution error
+bool Remez::CheckSolutionError(double*& solutionVector, double*& funcVector) {
     //Ax = y
     solution_max_abs_error = 0.0;
     solution_max_rel_error = 0.0;
@@ -549,12 +902,12 @@ bool Remez::Iterate() { // return success
     for (unsigned int i = 0; i < unknownCount; i++) {
         solution_abs_error = 0.0;
         for (unsigned int j = 0; j < unknownCount; j++) {
-            solution_abs_error += matrix[i][j] * bVector[j];
+            solution_abs_error += matrix[i][j] * solutionVector[j];
         }
-        solution_abs_error = solution_abs_error - yVector[i];
+        solution_abs_error = solution_abs_error - funcVector[i];
         _DOUBLE_HI(solution_abs_error) &= 0x7FFFFFFF;
 
-        solution_rel_error = yVector[i];
+        solution_rel_error = funcVector[i];
         _DOUBLE_HI(solution_rel_error) &= 0x7FFFFFFF;
         solution_rel_error = solution_abs_error / solution_rel_error;
 
@@ -564,26 +917,14 @@ bool Remez::Iterate() { // return success
             solution_max_rel_error = solution_rel_error; // large numbers compare
     }
 
-    // too much error
-    if (solution_max_rel_error > _REMEZ_SQRT_DOUBLE_EPSILON) {
-        for (unsigned int i = 0; i < unknownCount; i++)
-            delete[] AMatrix[i];
-        delete[] AMatrix;
+    return solution_max_rel_error <= _REMEZ_SQRT_DOUBLE_EPSILON;
+}
 
-        delete[] bVector;
-        delete[] yVector;
-
-        return sanity = false;
-    }
-
-    //save solution
-    for (unsigned int i = 0; i < unknownCount; i++)
-        solution[i] = bVector[i];
-
-    //update control pints
+bool Remez::CheckErrorFuncExtremaAlternateSign() {
+    double**& controlPoints = error_func_extrema;
     //check control points alternate in sign first
     double e1, e2, newPoint_x, perturbation;
-    AbsoluteErrorFunc errorFunc = { ratFuncC, funcC };
+    AbsoluteErrorFunc errorFunc = { estimFuncC, funcC };
     //
     e1 = errorFunc(controlPoints[0][0]);
     for (unsigned int i = 1; i < n; i++) {
@@ -621,16 +962,9 @@ bool Remez::Iterate() { // return success
                     && (perturbation += _REMEZ_DEFAULT_CTRLPT_PERTURBATION) < _REMEZ_DEFAULT_CTRLPT_MAX_PERTURBATION);
             }
 
-            if ((_DOUBLE_HI(e1) & 0x80000000) == (_DOUBLE_HI(e2) & 0x80000000)){
+            if ((_DOUBLE_HI(e1) & 0x80000000) == (_DOUBLE_HI(e2) & 0x80000000)) {
                 //fatal failed, cannot correct it
-                for (unsigned int i = 0; i < unknownCount; i++)
-                    delete[] AMatrix[i];
-                delete[] AMatrix;
-
-                delete[] bVector;
-                delete[] yVector;
-
-                return sanity = false;
+                return false;
             }
             else {
                 controlPoints[i][0] = newPoint_x;
@@ -641,119 +975,186 @@ bool Remez::Iterate() { // return success
         e1 = e2;
     }
 
-    ////check control points alternate in sign agian
-    //double e1, e2;
-    //AbsoluteErrorFunc errorFunc = { ratFuncC, funcC };
-    //for (unsigned int i = 1; i <= n; i++) {
-    //    e1 = errorFunc(controlPoints[i - 1][0]);
-    //    e2 = errorFunc(controlPoints[i][0]);
-    //    // check sign
-    //    if ((_DOUBLE_HI(e1) & 0x80000000) == (_DOUBLE_HI(e2) & 0x80000000)) {
-    //        for (unsigned int i = 0; i < unknownCount; i++)
-    //            delete[] AMatrix[i];
-    //        delete[] AMatrix;
+    return true;
+}
 
-    //        delete[] bVector;
-    //        delete[] yVector;
-
-    //        return sanity = false;
-    //    }
-    //}
-
-    unsigned int iter;
-    // get roots
-    if (relative_error) {
-        RelativeErrorFunc errorFunc = { ratFuncC, funcC };
-        for (unsigned int i = 1; i <= n; i++) {
-            iter = _REMEZ_DEFAULT_ROOTS_MAX_ITER;
-            roots[i] = TOMS748Algorithm::FindRoot(&errorFunc, controlPoints[i - 1][0], controlPoints[i][0], iter);
-        }
+//update extrema or roots
+void Remez::UpdateWeightedErrorFuncRoots(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    WeightedErrorFunc errFunc = { estimFuncC, funcC, weight_funcC };
+    for (unsigned int i = 1; i <= n; i++) {
+        iter = _REMEZ_DEFAULT_ROOTS_MAX_ITER;
+        roots[i] = TOMS748Algorithm::FindRoot(&errFunc, controlPoints[i - 1][0], controlPoints[i][0], iter);
     }
-    else {
-        AbsoluteErrorFunc errorFunc = { ratFuncC, funcC };
-        for (unsigned int i = 1; i <= n; i++) {
-            iter = _REMEZ_DEFAULT_ROOTS_MAX_ITER;
-            roots[i] = TOMS748Algorithm::FindRoot(&errorFunc, controlPoints[i - 1][0], controlPoints[i][0], iter);
-        }
+}
+
+void Remez::UpdateRelativeErrorFuncRoots(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    RelativeErrorFunc errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 1; i <= n; i++) {
+        iter = _REMEZ_DEFAULT_ROOTS_MAX_ITER;
+        roots[i] = TOMS748Algorithm::FindRoot(&errFunc, controlPoints[i - 1][0], controlPoints[i][0], iter);
     }
+}
 
-    max_error_last_change = max_error_change;
-    max_error_change = max_error;
-
-    // get extrema
-    if (brake) {
-        // controlPoint = newExt_x + brake% * (oldExt_x - newExt_x)
-        double percentBrake = (double)brake / 100.0;
-        if (relative_error) {
-            max_error = 0.0;
-            Abs_RelativeErrorFunc errorFunc = { ratFuncC, funcC };
-            for (unsigned int i = 0; i < unknownCount; i++) {
-                //delete[] controlPoints[i];
-                iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
-
-                double* newCtrlPt = BrentMethodExtrema::FindMaxima(&errorFunc, roots[i + 1], roots[i], iter);
-                controlPoints[i][0] = newCtrlPt[0] + (controlPoints[i][0] - newCtrlPt[0]) * percentBrake;
-                controlPoints[i][1] = func(controlPoints[i][0]);
-                _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
-                delete[] newCtrlPt;
-
-                if (controlPoints[i][1] > max_error)
-                    max_error = controlPoints[i][1];
-            }
-        }
-        else {
-            max_error = 0.0;
-            Abs_AbsoluteErrorFunc errorFunc = { ratFuncC, funcC };
-            for (unsigned int i = 0; i < unknownCount; i++) {
-                //delete[] controlPoints[i];
-                iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
-
-                double* newCtrlPt = BrentMethodExtrema::FindMaxima(&errorFunc, roots[i + 1], roots[i], iter);
-                controlPoints[i][0] = newCtrlPt[0] + (controlPoints[i][0] - newCtrlPt[0]) * percentBrake;
-                controlPoints[i][1] = func(controlPoints[i][0]);
-                _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
-                delete[] newCtrlPt;
-
-                if (controlPoints[i][1] > max_error)
-                    max_error = controlPoints[i][1];
-            }
-        }
+void Remez::UpdateAbsoluteErrorFuncRoots(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    AbsoluteErrorFunc errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 1; i <= n; i++) {
+        iter = _REMEZ_DEFAULT_ROOTS_MAX_ITER;
+        roots[i] = TOMS748Algorithm::FindRoot(&errFunc, controlPoints[i - 1][0], controlPoints[i][0], iter);
     }
-    else { // brake == 0
-        if (relative_error) {
-            max_error = 0.0;
-            Abs_RelativeErrorFunc errorFunc = { ratFuncC, funcC };
-            for (unsigned int i = 0; i < unknownCount; i++) {
-                delete[] controlPoints[i];
-                iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
-                controlPoints[i] = BrentMethodExtrema::FindMaxima(&errorFunc, roots[i + 1], roots[i], iter);
-                if (controlPoints[i][1] > max_error)
-                    max_error = controlPoints[i][1];
-            }
-        }
-        else {
-            max_error = 0.0;
-            Abs_AbsoluteErrorFunc errorFunc = { ratFuncC, funcC };
-            for (unsigned int i = 0; i < unknownCount; i++) {
-                delete[] controlPoints[i];
-                iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
-                controlPoints[i] = BrentMethodExtrema::FindMaxima(&errorFunc, roots[i + 1], roots[i], iter);
-                if (controlPoints[i][1] > max_error)
-                    max_error = controlPoints[i][1];
-            }
-        }
+}
+
+void Remez::UpdateWeightedErrorFuncExtrema(const double brakePercent, unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_WeightedErrorFunc abs_errFunc = { estimFuncC, funcC, weight_funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        //delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+
+        double* newCtrlPt = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        controlPoints[i][0] = newCtrlPt[0] + (controlPoints[i][0] - newCtrlPt[0]) * brakePercent;
+        controlPoints[i][1] = func(controlPoints[i][0]);
+        _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
+        delete[] newCtrlPt;
+
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
     }
+}
 
-    max_error_change = max_error - max_error_change;
+void Remez::UpdateRelativeErrorFuncExtrema(const double brakePercent, unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_RelativeErrorFunc abs_errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        //delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
 
-    for (unsigned int i = 0; i < unknownCount; i++)
-        delete[] AMatrix[i];
-    delete[] AMatrix;
+        double* newCtrlPt = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        controlPoints[i][0] = newCtrlPt[0] + (controlPoints[i][0] - newCtrlPt[0]) * brakePercent;
+        controlPoints[i][1] = func(controlPoints[i][0]);
+        _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
+        delete[] newCtrlPt;
 
-    delete[] bVector;
-    delete[] yVector;
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
 
-    return sanity = true;
+void Remez::UpdateAbsoluteErrorFuncExtrema(const double brakePercent, unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_AbsoluteErrorFunc abs_errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        //delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+
+        double* newCtrlPt = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        controlPoints[i][0] = newCtrlPt[0] + (controlPoints[i][0] - newCtrlPt[0]) * brakePercent;
+        controlPoints[i][1] = func(controlPoints[i][0]);
+        _DOUBLE_HI(controlPoints[i][1]) &= 0x7FFFFFFF;
+        delete[] newCtrlPt;
+
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+void Remez::UpdateWeightedErrorFuncExtrema(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_WeightedErrorFunc abs_errFunc = { estimFuncC, funcC, weight_funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+        controlPoints[i] = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+void Remez::UpdateRelativeErrorFuncExtrema(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_RelativeErrorFunc abs_errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+        controlPoints[i] = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+void Remez::UpdateAbsoluteErrorFuncExtrema(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_AbsoluteErrorFunc abs_errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+        controlPoints[i] = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+void Remez::InitializeWeightedErrorFuncExtrema(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_WeightedErrorFunc abs_errFunc = { estimFuncC, funcC, weight_funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        //delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+        controlPoints[i] = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+void Remez::InitializeRelativeErrorFuncExtrema(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_RelativeErrorFunc abs_errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        //delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+        controlPoints[i] = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+void Remez::InitializeAbsoluteErrorFuncExtrema(unsigned int& iter) {
+    double*& roots = error_func_roots;
+    double**& controlPoints = error_func_extrema;
+    max_error = 0.0;
+    Abs_AbsoluteErrorFunc abs_errFunc = { estimFuncC, funcC };
+    for (unsigned int i = 0; i < unknownCount; i++) {
+        //delete[] controlPoints[i];
+        iter = _REMEZ_DEFAULT_EXTREMA_MAX_ITER;
+        controlPoints[i] = BrentMethodExtrema::FindMaxima(&abs_errFunc, roots[i + 1], roots[i], iter);
+        if (controlPoints[i][1] > max_error)
+            max_error = controlPoints[i][1];
+    }
+}
+
+RemezErrorType Remez::GetErrorType() {
+    return Remez::error_type;
 }
 
 double Remez::GetMaxError() {
@@ -829,5 +1230,5 @@ unsigned int Remez::GetDenominator(double*& coefficients) {
 }
 
 double Remez::Estimate(double x) {
-    return (*ratFuncC)(x);
+    return (*estimFuncC)(x);
 }

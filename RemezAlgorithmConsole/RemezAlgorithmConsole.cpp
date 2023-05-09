@@ -13,19 +13,73 @@
 using namespace std;
 using namespace MyMath;
 
-double func(const double x) {
-    return exp(x) - 1;
+//approximate e^x
+double func1(const double x) {
+    return exp(x);
+}
+
+double weight_func1(const double x) {
+    double fx = exp(x);
+    _DOUBLE_HI(fx) &= 0x7FFFFFFF;
+    return fx;
+}
+
+double realTarget1(const double x) {
+    return exp(x);
+}
+
+double estimateTarget1(Remez& remez, const double x) {
+    return remez.Estimate(x);
+}
+
+//approximate sin(x)
+double func2(const double x) {
+    return sin(sqrt(x)) / sqrt(x);
+}
+
+double weight_func2(const double x) {
+    return 1 / sqrt(x);
+}
+
+double realTarget2(const double x) {
+    return sin(x);
+}
+
+double estimateTarget2(Remez& remez, const double x) {
+    return x * remez.Estimate(x * x);
+}
+
+//approximate sin(x)
+double func3(const double x) {
+    return (sin(sqrt(x)) - sqrt(x)) / (x * sqrt(x));
+}
+
+double weight_func3(const double x) {
+    return 1 / (x * sqrt(x));
+}
+
+double realTarget3(const double x) {
+    return sin(x);
+}
+
+double estimateTarget3(Remez& remez, const double x) {
+    double xx = x * x;
+    return x * (1 + xx * remez.Estimate(xx));
 }
 
 int main()
 {
+    const unsigned int targetFuncIndex = 3;
+    //
     const bool relatErr = true; // relative Error
-    const bool pinned = true; // if "pinned" is true, all control points cannot be origin(0,0). The origin(0,0) control point will occur the 0 dividing during LUP step.
-    const unsigned int oN = 5; // m, if "pinned" is true, please avoid to use odd rank, they have origin(0,0) Chebyshev Knot
+    const bool pinned = false; // if "pinned" is true, all control points cannot be origin(0,0). The origin(0,0) control point will occur the 0 dividing during LUP step.
+    const unsigned int oN = 4; // m, if "pinned" is true, please avoid to use odd rank, they have origin(0,0) Chebyshev Knot
     const unsigned int oD = 5; // n
     const int skew = 0; // in [-100, 100]
-    const double a = -1;
-    const double b = 1;
+    //const double a = -1;
+    //const double b = 1;
+    const double a = 1e-50;
+    const double b = PI * PI / 4;
 
     ostringstream out;
     out.precision(PRECISION);
@@ -38,19 +92,43 @@ int main()
     cout << "=========================================================================" << endl;
     cout << "Initialization : " << endl;
 
-    Remez remez = { func, relatErr, pinned, oN, oD, a, b, skew };
+    Remez* remez;
+    double (* realTargetFunc)(double);
+    double (* estimateTargetFunc)(Remez&, double);
+
+    switch (targetFuncIndex) {
+    case 1:
+        //remez = new Remez(func1, weight_func1, pinned, oN, oD, a, b, skew);
+        remez = new Remez(func1, relatErr, pinned, oN, oD, a, b, skew);
+        realTargetFunc = realTarget1;
+        estimateTargetFunc = estimateTarget1;
+        break;
+    case 2:
+        remez = new Remez(func2, weight_func2, pinned, oN, oD, a, b, skew);
+        realTargetFunc = realTarget2;
+        estimateTargetFunc = estimateTarget2;
+        break;
+    case 3:
+        remez = new Remez(func3, weight_func3, pinned, oN, oD, a, b, skew);
+        realTargetFunc = realTarget3;
+        estimateTargetFunc = estimateTarget3;
+        break;
+    default:
+        system("pause");
+        return 0; // quit
+    }
 
     double* error_func_roots;
-    unsigned int roots_count = remez.GetErrorFuncRoots(error_func_roots);
+    unsigned int roots_count = remez->GetErrorFuncRoots(error_func_roots);
 
     double** controlPoints;
-    unsigned int controlPoints_count = remez.GetControlPoints(controlPoints);
+    unsigned int controlPoints_count = remez->GetControlPoints(controlPoints);
 
     double* numerator;
-    unsigned int numerator_count = remez.GetNumerator(numerator);
+    unsigned int numerator_count = remez->GetNumerator(numerator);
 
     double* denominator;
-    unsigned int denominator_count = remez.GetDenominator(denominator);
+    unsigned int denominator_count = remez->GetDenominator(denominator);
 
     //Chebyshev Knots
     cout << "Initial Points - Chebyshev Knots (Count : " << to_string(roots_count) << ") : " << endl;
@@ -105,12 +183,12 @@ int main()
 
     out.str("");
     out.clear();
-    out << std::fixed << remez.GetMaxError();
+    out << std::fixed << remez->GetMaxError();
     cout << "Max Error = " << move(out).str() << endl;
 
     cout << endl;
 
-    cout << "Sanity : " << (remez.Sanity() ? "Good" : "Bad") << endl;
+    cout << "Sanity : " << (remez->Sanity() ? "Good" : "Bad") << endl;
 
     cout << endl;
 
@@ -126,9 +204,9 @@ int main()
 
     while (operKey != 'e' && operKey != 'E') {
         if (operKey != 'c' && operKey != 'C') {
-            remez.Iterate();
+            remez->Iterate();
 
-            cout << "Iteration (Count : " << to_string(remez.GetIterationCount()) << ") : " << endl;
+            cout << "Iteration (Count : " << to_string(remez->GetIterationCount()) << ") : " << endl;
 
             //control points
             cout << "Control Points (Count : " << to_string(controlPoints_count) << ") : " << endl;
@@ -189,21 +267,21 @@ int main()
             double max_err, max_err_change, max_err_last_change;
             out.str("");
             out.clear();
-            out << std::fixed << (max_err = remez.GetMaxError());
+            out << std::fixed << (max_err = remez->GetMaxError());
             cout << "Max Error =   " << (max_err < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
 
             out.str("");
             out.clear();
-            out << std::fixed << (max_err_change = remez.GetCurrentChangeOfMaxError());
+            out << std::fixed << (max_err_change = remez->GetCurrentChangeOfMaxError());
             cout << "Change =      " << (max_err_change < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
 
             out.str("");
             out.clear();
-            out << std::fixed << (max_err_last_change = remez.GetLastChangeOfMaxError());
+            out << std::fixed << (max_err_last_change = remez->GetLastChangeOfMaxError());
             cout << "Last Change = " << (max_err_last_change < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
@@ -211,14 +289,14 @@ int main()
             double sol_max_abs_err, sol_max_rel_err;
             out.str("");
             out.clear();
-            out << std::fixed << (sol_max_abs_err = remez.GetSolutionMaxAbsoluteError());
+            out << std::fixed << (sol_max_abs_err = remez->GetSolutionMaxAbsoluteError());
             cout << "Solution Max Absolute Error = " << (sol_max_abs_err < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
 
             out.str("");
             out.clear();
-            out << std::fixed << (sol_max_rel_err = remez.GetSolutionMaxRelativeError());
+            out << std::fixed << (sol_max_rel_err = remez->GetSolutionMaxRelativeError());
             cout << "Solution Max Relative Error = " << (sol_max_rel_err < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
@@ -230,7 +308,7 @@ int main()
 
             cout << endl;
 
-            cout << "Sanity : " << (remez.Sanity() ? "Good" : "Bad") << endl;
+            cout << "Sanity : " << (remez->Sanity() ? "Good" : "Bad") << endl;
 
             cout << "Iteration finished" << endl;
             cout << "=========================================================================" << endl;
@@ -265,8 +343,10 @@ int main()
             cout << "-----------------------------------------------------------------------------" << endl;
             //estimate function
 
-            double estimAns = remez.Estimate(x);
-            double standardAns = func(x);
+            //double estimAns = remez->Estimate(x);
+            //double standardAns = func(x);
+            double estimAns = realTargetFunc(x);
+            double standardAns = estimateTargetFunc(*remez, x);
 
             double error = estimAns - standardAns;
 
@@ -296,6 +376,8 @@ int main()
         operKey = _getch();
         cout << "\n=========================================================================" << endl;
     }
+
+    delete remez;
 
     system("pause");
 }

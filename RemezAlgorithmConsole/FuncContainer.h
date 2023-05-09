@@ -11,7 +11,7 @@ namespace MyMath {
         double operator()(double x);
     };
 
-    struct RationalFuncContainer : DoubleFunc {
+    struct EstimateFuncContainer : DoubleFunc {
         unsigned int numeratorCount;
         unsigned int denominatorCount;
 
@@ -19,7 +19,7 @@ namespace MyMath {
 
         double* coefficients;
 
-        RationalFuncContainer(double* coefficients, bool pinnied
+        EstimateFuncContainer(double* coefficients, bool pinnied
             , unsigned int numeratorCount, unsigned int denominatorCount);
 
         double operator()(double x);

@@ -7,34 +7,51 @@
 #endif
 
 namespace MyMath {
+    struct WeightedErrorFunc : DoubleFunc {
+        EstimateFuncContainer* estimFunc;
+        FuncContainer* oriFunc;
+        FuncContainer* weightFunc;
+
+        WeightedErrorFunc(EstimateFuncContainer* estimFunc, FuncContainer* oriFunc, FuncContainer* weightFunc);
+
+        double operator()(double x);
+    };
+
     struct RelativeErrorFunc : DoubleFunc {
-        RationalFuncContainer* rationalFunc;
+        EstimateFuncContainer* estimFunc;
         FuncContainer* oriFunc;
 
-        RelativeErrorFunc(RationalFuncContainer* rationalFunc, FuncContainer* oriFunc);
+        RelativeErrorFunc(EstimateFuncContainer* estimFunc, FuncContainer* oriFunc);
 
         double operator()(double x);
     };
 
     struct AbsoluteErrorFunc : DoubleFunc {
-        RationalFuncContainer* rationalFunc;
+        EstimateFuncContainer* estimFunc;
         FuncContainer* oriFunc;
 
-        AbsoluteErrorFunc(RationalFuncContainer* rationalFunc, FuncContainer* oriFunc);
+        AbsoluteErrorFunc(EstimateFuncContainer* estimFunc, FuncContainer* oriFunc);
+
+        double operator()(double x);
+    };
+
+    struct Abs_WeightedErrorFunc : WeightedErrorFunc {
+
+        Abs_WeightedErrorFunc(EstimateFuncContainer* estimFunc, FuncContainer* oriFunc, FuncContainer* weightFunc);
 
         double operator()(double x);
     };
 
     struct Abs_RelativeErrorFunc : RelativeErrorFunc {
 
-        Abs_RelativeErrorFunc(RationalFuncContainer* rationalFunc, FuncContainer* oriFunc);
+        Abs_RelativeErrorFunc(EstimateFuncContainer* estimFunc, FuncContainer* oriFunc);
 
         double operator()(double x);
     };
 
     struct Abs_AbsoluteErrorFunc : AbsoluteErrorFunc {
 
-        Abs_AbsoluteErrorFunc(RationalFuncContainer* rationalFunc, FuncContainer* oriFunc);
+        Abs_AbsoluteErrorFunc(EstimateFuncContainer* estimFunc, FuncContainer* oriFunc);
 
         double operator()(double x);
     };

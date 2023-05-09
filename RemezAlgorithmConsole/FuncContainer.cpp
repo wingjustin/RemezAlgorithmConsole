@@ -2,15 +2,15 @@
 
 using namespace MyMath;
 
-RationalFuncContainer::RationalFuncContainer(double* const coefficients, const bool pinnied
+EstimateFuncContainer::EstimateFuncContainer(double* const coefficients, const bool pinnied
     , const unsigned int numeratorCount, const unsigned int denominatorCount) {
-    RationalFuncContainer::coefficients = coefficients;
-    RationalFuncContainer::pinned = pinnied;
-    RationalFuncContainer::numeratorCount = numeratorCount;
-    RationalFuncContainer::denominatorCount = denominatorCount;
+    EstimateFuncContainer::coefficients = coefficients;
+    EstimateFuncContainer::pinned = pinnied;
+    EstimateFuncContainer::numeratorCount = numeratorCount;
+    EstimateFuncContainer::denominatorCount = denominatorCount;
 }
 
-double RationalFuncContainer::operator()(const double x) {
+double EstimateFuncContainer::operator()(const double x) {
     double n = 0.0; // numerator
     double d = 0.0; // denominator
 
