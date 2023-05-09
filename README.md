@@ -26,11 +26,19 @@ Remez Algorithm
 <br><br>
 ,過程主要用到TOMS748 求根算法和Brent's Method 求極值算法, 兩種算法都不需要求對函數f(x)求導, 加上LU分解法求解
 <br><br>
+  支持有理函數逼近及權重函數。當控制點正負沒有交錯會自動嘗試找尋附近相反符號點作為新控制點。
+  <br><br>
 </p>
 <div>Parameters</div>
 <ul>
 <br>
-<li>func = 函數f(x)</li>
+<li>func = 目標函數f(x)</li>
+<br>
+<li>weight_func = 權重函數w(x)</li>
+<br>
+<li>oN = 分子階數</li>
+<br>
+<li>oD = 分母階數,階數為零時為逼近函數為多項式</li>
 <br>
 <li>relative_error[true|false] = true 為 對相對誤差最佳化, false 為 對絕對誤差最佳化</li>
 <br>
