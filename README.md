@@ -38,7 +38,7 @@ Remez Algorithm
 <br>
 <li>oN = 分子階數</li>
 <br>
-<li>oD = 分母階數,階數為零時為逼近函數為多項式</li>
+<li>oD = 分母階數,階數為零時,逼近函數為多項式</li>
 <br>
 <li>pinned [true|false] = true 為 控制逼近函數必須通過原點(0,0), 並且盡量避免控制點為0導致出現除零情況</li>
 <br>
