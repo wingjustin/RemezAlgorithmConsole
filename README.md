@@ -40,11 +40,11 @@ Remez Algorithm
 <br>
 <li>oD = 分母階數,階數為零時為逼近函數為多項式</li>
 <br>
-<li>relative_error[true|false] = true 為 對相對誤差最佳化, false 為 對絕對誤差最佳化</li>
-<br>
 <li>pinned [true|false] = true 為 控制逼近函數必須通過原點(0,0), 並且盡量避免控制點為0導致出現除零情況</li>
 <br>
 <li>skew [-100,100] 為使初始切比雪夫零點左偏或右偏, 正數為左偏, 負數為右偏, 預設為0</li>
+<br>
+<li>relative_error[true|false] = 如果沒有權重函數, true 為 對相對誤差最佳化, false 為 對絕對誤差最佳化, 預設為true。 有權重函數此設定無意義。</li>
 
 </ul>
 
