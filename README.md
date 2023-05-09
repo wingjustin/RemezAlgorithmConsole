@@ -34,7 +34,7 @@ Remez Algorithm
 <br>
 <li>func = 目標函數f(x)</li>
 <br>
-<li>weight_func = 權重函數w(x)</li>
+<li>weight_func = 權重函數w(x), 詳細可以參考https://github.com/samhocevar/lolremez/wiki</li>
 <br>
 <li>oN = 分子階數</li>
 <br>
