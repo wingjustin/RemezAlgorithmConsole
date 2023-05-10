@@ -50,6 +50,7 @@ double estimateTarget2(Remez& remez, const double x) {
 }
 
 //approximate sin(x)
+//demo (6th iter) url: https://www.desmos.com/calculator/lqaoilwrjp
 double func3(const double x) {
     return (sin(sqrt(x)) - sqrt(x)) / (x * sqrt(x));
 }
@@ -75,7 +76,7 @@ int main()
     const bool pinned = false; // if "pinned" is true, all control points cannot be origin(0,0). The origin(0,0) control point will occur the 0 dividing during LUP step.
     const unsigned int oN = 4; // m, if "pinned" is true, please avoid to use odd rank, they have origin(0,0) Chebyshev Knot
     const unsigned int oD = 5; // n
-    const int skew = 0; // in [-100, 100]
+    const int skew = 70; // in [-100, 100]
     //const double a = -1;
     //const double b = 1;
     const double a = 1e-50;
@@ -86,7 +87,6 @@ int main()
 
     cout << "Remez Algorithm" << endl;
     cout << endl;
-    cout << "Optimize " << (relatErr ? "Relative Error" : "Absolute Error") << endl;
     if (pinned)
         cout << "Pass through the origin (0,0)" << endl;
     cout << "=========================================================================" << endl;
@@ -188,7 +188,33 @@ int main()
 
     cout << endl;
 
-    cout << "Sanity : " << (remez->Sanity() ? "Good" : "Bad") << endl;
+    if (remez->Sanity()) {
+        cout << "Sanity : Good!" << endl;
+        cout << "Status : ";
+        switch (remez->GetIterateStatus()) {
+        case RemezIterateStatus::Success:
+            cout << "Success!" << endl;
+            break;
+        case RemezIterateStatus::CorrectedExtremaAlternateSign:
+            cout << "Success! But Corrected Some Extrema Sign." << endl;
+            break;
+        }
+    }
+    else {
+        cout << "Sanity : Bad!" << endl;
+        cout << "Status : ";
+        switch (remez->GetIterateStatus()) {
+        case RemezIterateStatus::SolutionInvalid:
+            cout << "Solution Invalid! " << endl;
+            break;
+        case RemezIterateStatus::SolutionBigError:
+            cout << "Solution Big Error!" << endl;
+            break;
+        case RemezIterateStatus::ExtremaDoNotAlternateInSign:
+            cout << "Extrema Don't Alternate in Sign!" << endl;
+            break;
+        }
+    }
 
     cout << endl;
 
@@ -268,21 +294,21 @@ int main()
             out.str("");
             out.clear();
             out << std::fixed << (max_err = remez->GetMaxError());
-            cout << "Max Error =   " << (max_err < 0 ? "" : " ") << move(out).str() << endl;
+            cout << "Max Error =                   " << (max_err < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
 
             out.str("");
             out.clear();
             out << std::fixed << (max_err_change = remez->GetCurrentChangeOfMaxError());
-            cout << "Change =      " << (max_err_change < 0 ? "" : " ") << move(out).str() << endl;
+            cout << "Change =                      " << (max_err_change < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
 
             out.str("");
             out.clear();
             out << std::fixed << (max_err_last_change = remez->GetLastChangeOfMaxError());
-            cout << "Last Change = " << (max_err_last_change < 0 ? "" : " ") << move(out).str() << endl;
+            cout << "Last Change =                 " << (max_err_last_change < 0 ? "" : " ") << move(out).str() << endl;
 
             cout << endl;
 
@@ -304,11 +330,39 @@ int main()
             out.str("");
             out.clear();
             out << std::fixed << _REMEZ_SQRT_DOUBLE_EPSILON;
-            cout << "Sqrt(EPSILON) = " << move(out).str() << endl;
+            cout << "Sqrt(EPSILON) =               " << (" ") << move(out).str() << endl;
 
             cout << endl;
 
-            cout << "Sanity : " << (remez->Sanity() ? "Good" : "Bad") << endl;
+            if (remez->Sanity()) {
+                cout << "Sanity : Good!" << endl;
+                cout << "Status : ";
+                switch (remez->GetIterateStatus()) {
+                case RemezIterateStatus::Success:
+                    cout << "Success!" << endl;
+                    break;
+                case RemezIterateStatus::CorrectedExtremaAlternateSign:
+                    cout << "Success! But Corrected Some Extrema Sign." << endl;
+                    break;
+                }
+            }
+            else {
+                cout << "Sanity : Bad!" << endl;
+                cout << "Status : ";
+                switch (remez->GetIterateStatus()) {
+                case RemezIterateStatus::SolutionInvalid:
+                    cout << "Solution Invalid! " << endl;
+                    break;
+                case RemezIterateStatus::SolutionBigError:
+                    cout << "Solution Big Error!" << endl;
+                    break;
+                case RemezIterateStatus::ExtremaDoNotAlternateInSign:
+                    cout << "Extrema Don't Alternate in Sign!" << endl;
+                    break;
+                }
+            }
+            
+            cout << endl;
 
             cout << "Iteration finished" << endl;
             cout << "=========================================================================" << endl;

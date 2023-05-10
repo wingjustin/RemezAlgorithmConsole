@@ -33,7 +33,22 @@
 */
 
 namespace MyMath {
-	enum class RemezErrorType : unsigned int { AbsoluteError, RelativeError, WeightError }; //declare error type
+	//declare error type
+	enum class RemezErrorType : unsigned int {
+		AbsoluteError
+		, RelativeError
+		, WeightError
+	};
+
+	//declare iterating status
+	enum class RemezIterateStatus : unsigned int {
+		Success //  good
+		, CorrectedExtremaAlternateSign // not good but ok
+		, SolutionInvalid // bad
+		, SolutionBigError // bad
+		, ExtremaDoNotAlternateInSign // bad
+	};
+
 	class Remez {
 	private:
 		//params
@@ -62,7 +77,7 @@ namespace MyMath {
 
 		//iteration data
 		unsigned int iter_count;
-		bool sanity;
+		RemezIterateStatus iter_status;
 
 		double* solution;
 		double** matrix;
@@ -109,10 +124,12 @@ namespace MyMath {
 		void InitializeAbsoluteErrorFuncExtrema(unsigned int& iter);
 
 		//check sanity
-		bool CheckSolutionValid(double*& solutionVector);
-		bool CheckSolutionError(double*& solutionVector, double*& funcVector);
+		RemezIterateStatus CheckSolutionValid(double*& solutionVector);
+		RemezIterateStatus CheckSolutionError(double*& solutionVector, double*& funcVector);
 
-		bool CheckErrorFuncExtremaAlternateSign();
+		RemezIterateStatus CheckErrorFuncExtremaAlternateSign();
+
+		bool CheckSanity(RemezIterateStatus status);
 
 	public:
 		Remez(double (*func)(double)
@@ -143,7 +160,7 @@ namespace MyMath {
 		unsigned int GetBrake();
 		void SetBrake(unsigned int brake);
 
-		bool Iterate(); // return success
+		RemezIterateStatus Iterate(); // return success
 
 		RemezErrorType GetErrorType();
 		double GetMaxError();
@@ -154,6 +171,7 @@ namespace MyMath {
 		double GetSolutionMaxRelativeError();
 
 		unsigned int GetIterationCount();
+		RemezIterateStatus GetIterateStatus();
 		bool Sanity();
 
 		unsigned int GetErrorFuncRoots(double*& roots);

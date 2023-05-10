@@ -66,7 +66,7 @@ Remez::Remez(double (* const func)(double)
 
     Remez::iter_count = 0;
 
-    Remez::sanity = true;
+    Remez::iter_status = RemezIterateStatus::Success;
 
     Remez::solution = new double[unknownCount];
     Remez::matrix = new double* [unknownCount];
@@ -126,7 +126,7 @@ Remez::Remez(double (*func)(double)
 
     Remez::iter_count = 0;
 
-    Remez::sanity = true;
+    Remez::iter_status = RemezIterateStatus::Success;
 
     Remez::solution = new double[unknownCount];
     Remez::matrix = new double* [unknownCount];
@@ -307,8 +307,8 @@ void Remez::Initialize() {
     for (unsigned int i = 0; i < unknownCount; i++) {
         //check whether value is valid
         if (!CheckValidNum(solution[i])) {
-            sanity = false;
-            break;
+            Remez::iter_status = RemezIterateStatus::SolutionInvalid; // bad
+            return;
         }
     }
 
@@ -329,9 +329,9 @@ void Remez::Initialize() {
     max_error_change = max_error;
 }
 
-bool Remez::Iterate() { // return success
-    if (!sanity)
-        return false;
+RemezIterateStatus Remez::Iterate() { // return success
+    if (!CheckSanity(iter_status))
+        return Remez::iter_status;
 
     //iterate
 
@@ -354,21 +354,21 @@ bool Remez::Iterate() { // return success
     iter_count++;
 
     //check whether solution is valid
-    if (!CheckSolutionValid(bVector)) {
+    if (!CheckSanity(Remez::iter_status = CheckSolutionValid(bVector))) { // bad
         // fail
         delete[] bVector;
         delete[] yVector;
 
-        return sanity = false;
+        return Remez::iter_status;
     }
 
     //check solution error
-    if (!CheckSolutionError(bVector, yVector)) {
+    if (!CheckSanity(Remez::iter_status = CheckSolutionError(bVector, yVector))) { // bad
         // too much error
         delete[] bVector;
         delete[] yVector;
 
-        return sanity = false;
+        return Remez::iter_status;
     }
 
     //save solution
@@ -377,12 +377,12 @@ bool Remez::Iterate() { // return success
 
     //update control points
     //check control points alternate in sign first, if not, try to correct it
-    if (!CheckErrorFuncExtremaAlternateSign()) {
+    if (!CheckSanity(Remez::iter_status = CheckErrorFuncExtremaAlternateSign())) { // bad
         //fatal failed, cannot correct it
         delete[] bVector;
         delete[] yVector;
 
-        return sanity = false;
+        return Remez::iter_status;
     }
 
     ////check control points alternate in sign agian
@@ -456,7 +456,7 @@ bool Remez::Iterate() { // return success
     delete[] bVector;
     delete[] yVector;
 
-    return sanity = true;
+    return Remez::iter_status;
 }
 
 void Remez::IteratingSolveLinearEquationsWithWeightError(double E, double*& solutionVector, double*& funcVector) {
@@ -884,16 +884,16 @@ void Remez::IteratingSolveLinearEquationsWithAbsoluteError(double E, double*& so
 }
 
 //check sanity
-bool Remez::CheckSolutionValid(double*& solutionVector) {
+RemezIterateStatus Remez::CheckSolutionValid(double*& solutionVector) {
     for (unsigned int i = 0; i < unknownCount; i++) {
         //check whether value is valid
         if (!CheckValidNum(solutionVector[i]))
-            return false;
+            return RemezIterateStatus::SolutionInvalid;
     }
-    return true;
+    return RemezIterateStatus::Success;
 }
 
-bool Remez::CheckSolutionError(double*& solutionVector, double*& funcVector) {
+RemezIterateStatus Remez::CheckSolutionError(double*& solutionVector, double*& funcVector) {
     //Ax = y
     solution_max_abs_error = 0.0;
     solution_max_rel_error = 0.0;
@@ -917,21 +917,25 @@ bool Remez::CheckSolutionError(double*& solutionVector, double*& funcVector) {
             solution_max_rel_error = solution_rel_error; // large numbers compare
     }
 
-    return solution_max_rel_error <= _REMEZ_SQRT_DOUBLE_EPSILON;
+    return solution_max_rel_error > _REMEZ_SQRT_DOUBLE_EPSILON
+        ? RemezIterateStatus::SolutionBigError
+        : RemezIterateStatus::Success;
 }
 
-bool Remez::CheckErrorFuncExtremaAlternateSign() {
+RemezIterateStatus Remez::CheckErrorFuncExtremaAlternateSign() {
     double**& controlPoints = error_func_extrema;
     //check control points alternate in sign first
     double e1, e2, newPoint_x, perturbation;
     AbsoluteErrorFunc errorFunc = { estimFuncC, funcC };
     //
+    unsigned int correction_count = 0; // count correction
     e1 = errorFunc(controlPoints[0][0]);
     for (unsigned int i = 1; i < n; i++) {
         //e1 = errorFunc(controlPoints[i - 1][0]);
         e2 = errorFunc(controlPoints[i][0]);
         // check sign
         if ((_DOUBLE_HI(e1) & 0x80000000) == (_DOUBLE_HI(e2) & 0x80000000)) {
+            correction_count++;
             //try to find other different sign point to correct this failure
             /*
             * demo URL :
@@ -964,7 +968,7 @@ bool Remez::CheckErrorFuncExtremaAlternateSign() {
 
             if ((_DOUBLE_HI(e1) & 0x80000000) == (_DOUBLE_HI(e2) & 0x80000000)) {
                 //fatal failed, cannot correct it
-                return false;
+                return RemezIterateStatus::ExtremaDoNotAlternateInSign;
             }
             else {
                 controlPoints[i][0] = newPoint_x;
@@ -975,7 +979,9 @@ bool Remez::CheckErrorFuncExtremaAlternateSign() {
         e1 = e2;
     }
 
-    return true;
+    return correction_count > 0
+        ? RemezIterateStatus::CorrectedExtremaAlternateSign
+        : RemezIterateStatus::Success;
 }
 
 //update extrema or roots
@@ -1181,8 +1187,22 @@ unsigned int Remez::GetIterationCount() {
     return Remez::iter_count;
 }
 
+RemezIterateStatus Remez::GetIterateStatus() {
+    return Remez::iter_status;
+}
+
+bool Remez::CheckSanity(RemezIterateStatus status) {
+    switch (status) {
+    case RemezIterateStatus::Success: //  good
+    case RemezIterateStatus::CorrectedExtremaAlternateSign: // not good but ok
+        return true;
+    default: // bad
+        return false;
+    }
+}
+
 bool Remez::Sanity() {
-    return Remez::sanity;
+    return CheckSanity(Remez::iter_status);
 }
 
 unsigned int Remez::GetErrorFuncRoots(double*& roots) {
