@@ -74,8 +74,8 @@ int main()
     //
     const bool relatErr = true; // relative Error
     const bool pinned = false; // if "pinned" is true, all control points cannot be origin(0,0). The origin(0,0) control point will occur the 0 dividing during LUP step.
-    const unsigned int oN = 4; // m, if "pinned" is true, please avoid to use odd rank, they have origin(0,0) Chebyshev Knot
-    const unsigned int oD = 5; // n
+    const unsigned int oN = 2; // m, if "pinned" is true, please avoid to use odd rank, they have origin(0,0) Chebyshev Knot
+    const unsigned int oD = 3; // n
     const int skew = 70; // in [-100, 100]
     //const double a = -1;
     //const double b = 1;
